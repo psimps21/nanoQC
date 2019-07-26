@@ -1,5 +1,4 @@
-# wdecoster
-# Edited by j.ouwerkerk
+# Edited by p.simpson
 
 import os
 import sys
@@ -22,8 +21,9 @@ def main():
         filename=os.path.join(args.outdir, "NanoQC.log"),
         level=logging.INFO)
     logging.info("NanoQC started.")
+
     hist = length_histogram(fqin=compressed_input(args.fastq))
-    fq = get_bin(fq=compressed_input(args.fastq),
+    fq = get_bin(fq_list=compressed_input(args.fastq),
                  size_range=size_range)
     if len(fq) == 0:
         logging.critical(
@@ -77,17 +77,28 @@ def make_output_dir(path):
 
 
 def compressed_input(inputfq):
-    if inputfq.endswith('.gz'):
+    if os.path.isfile(inputfq):
+        fq = [inputfq]
+        print('List:', fq)
+        return (open_fastq(i) for i in fq)
+
+    elif os.path.isdir(inputfq):
+        fqs = os.listdir(inputfq)
+        return (open_fastq(os.path.join(inputfq, i)) for i in fqs)
+
+
+def open_fastq(fq):
+    if fq.endswith('.gz'):
         import gzip
-        return gzip.open(inputfq, 'rt')
-    elif inputfq.endswith('.bz2'):
+        return gzip.open(fq, 'rt')
+    elif fq.endswith('.bz2'):
         import bz2
-        return bz2.open(inputfq, 'rt')
-    elif inputfq.endswith(('.fastq', '.fq',)):
-        return open(inputfq, 'r')
+        return bz2.open(fq, 'rt')
+    elif fq.endswith(('.fastq', '.fq',)):
+        return open(fq, 'r')
     else:
         sys.exit('INPUT ERROR:\nUnrecognized file extension in {}\n'
-                 'Supported are .gz, .bz2, .fastq and .fq'.format(inputfq))
+                 'Supported are .gz, .bz2, .fastq and .fq'.format(fq))
 
 
 def length_histogram(fqin):
@@ -109,11 +120,17 @@ def length_histogram(fqin):
     return hist_norm
 
 
-def get_lengths(fastq):
+def get_lengths(fastq_list):
     '''
-    Loop over the fastq file, extract length of sequences
+    Loop over the fastq file(s), extract length of sequences
     '''
-    return np.array([len(record) for record in SeqIO.parse(fastq, "fastq")])
+    len_list = []
+    for fq in fastq_list:
+        for record in SeqIO.parse(fq, "fastq"):
+            len_list.append(len(record))
+        fq.close()
+    # return np.array([len(record) for record in SeqIO.parse(fastq, "fastq")])
+    return np.array(len_list)
 
 
 def per_base_sequence_content_and_quality(head_seq, head_qual, tail_seq, tail_qual, rna=False):
@@ -125,18 +142,26 @@ def per_base_sequence_content_and_quality(head_seq, head_qual, tail_seq, tail_qu
     return [seq_plot_left, seq_plot_right], [qual_plot_left, qual_plot_right]
 
 
-def get_bin(fq, size_range):
+def get_bin(fq_list, size_range):
     '''
     Loop over the fastq file
     Extract list of nucleotides and list of quality scores in tuples in list
     Only select those reads of which the length is within the size range
     '''
-    logging.info("Extracting nucleotides and quality scores.")
-    return [(list(rec.seq)[:size_range],
-             list(rec.letter_annotations["phred_quality"])[:size_range],
-             list(rec.seq[-1 * size_range:]),
-             list(rec.letter_annotations["phred_quality"])[-1 * size_range:])
-            for rec in SeqIO.parse(fq, "fastq") if len(rec) >= size_range * 2]
+    logging.info("Extracting nucleotides anda  quality scores.")
+
+    tuple_list = []
+    for fq in fq_list:
+        for rec in SeqIO.parse(fq, "fastq"):
+            if len(rec) >= size_range * 2:
+                tup = (list(rec.seq)[:size_range],
+                    list(rec.letter_annotations["phred_quality"])[:size_range],
+                    list(rec.seq[-1 * size_range:]),
+                    list(rec.letter_annotations["phred_quality"])[-1 * size_range:])
+                tuple_list.append(tup)
+        fq.close()
+
+    return tuple_list
 
 
 def plot_nucleotide_diversity(seqs, invert=False, rna=False):
